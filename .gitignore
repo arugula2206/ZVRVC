@@ -4,4 +4,7 @@ __pycache__
 FreeVC/__pycache__/
 FreeVC/dataset/
 FreeVC/logs/
+FreeVC/wavlm/WavLM-Large.pt
+FreeVC/checkpoints/freevc.pth
+FreeVC/checkpoints/freevc-s.pth
 *.log
