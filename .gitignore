@@ -1,0 +1,7 @@
+__pycache__
+
+# Freevc内の不要なファイルを無視
+FreeVC/__pycache__/
+FreeVC/dataset/
+FreeVC/logs/
+*.log
