@@ -8,3 +8,7 @@ FreeVC/wavlm/WavLM-Large.pt
 FreeVC/checkpoints/freevc.pth
 FreeVC/checkpoints/freevc-s.pth
 *.log
+
+# python仮想環境のファイルを無視
+.venv/
+pyvenv.cfg

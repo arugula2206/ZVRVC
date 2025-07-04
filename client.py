@@ -9,7 +9,7 @@ import sys
 
 # --- 設定 ---
 # ▼▼▼ このIPアドレスを、サーバーが動作しているIPアドレスに書き換えてください ▼▼▼
-SERVER_IP = 'localhost'  # 'localhost'からより直接的なIPアドレスに変更
+SERVER_IP = 'localhost'  # サーバーのIPアドレス (サーバー側と合わせる)
 # ▲▲▲ ここまで ▲▲▲
 
 SERVER_PORT = 8080          # サーバーのポート番号 (サーバー側と合わせる)
