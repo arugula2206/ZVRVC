@@ -1,0 +1,10 @@
+{
+  "stargan_model_dir": "ita4jvs20_pre_alljp",
+  "stargan_model_name": "epoch_00294.pth",
+  "f0_model": "ep50_200bat32lr5_alljp.pth",
+  "f0_model_key": "model",
+  "hifigan_config": "./hifigan_fix/config_v1_mod_2.json",
+  "hifigan_model": "./hifigan_fix/checkpoints/g_07180000_2",
+  "target_speaker_key": "zundamon127",
+  "warmup": 10
+}
