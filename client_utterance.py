@@ -13,7 +13,7 @@ SERVER_IP = 'localhost'
 SERVER_PORT = 8080
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 16000
+RATE = 48000
 CHUNK = 1024
 
 # --- 発話検出（VAD）設定 ---
