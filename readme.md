@@ -106,3 +106,12 @@ python server.py
     -   サーバー側で音声変換処理が正しく行われていますか？サーバーのログを確認してください。
     -   クライアントPCの音量ミキサーで「python」の音量がミュートになっていませんか？
     -   `client.py`で指定した出力デバイスは正しいですか？
+
+
+
+# starganv2-vcでの変換
+server_stargan.pyを起動
+```bash
+python server_stargan.py --config config.json
+```
+クライアントはclient_utterance.pyでok
