@@ -1,140 +1,152 @@
-# client_modified.py (再生スキップ対応版)
+# client_utterance.py (sounddevice版)
 
 import socket
-import pyaudio
+import sounddevice as sd
 import time
 import argparse
 import sys
 import numpy as np
 import struct
+import queue
 
-# --- 設定 ---
+# --- ▼▼▼ 設定 ▼▼▼ ---
+# 使用するデバイス名を部分的に指定してください (例: "Focusrite", "MacBook Pro Microphone")
+# 空白のままにすると、OSのデフォルトデバイスが使用されます。
+INPUT_DEVICE_NAME = ""
+OUTPUT_DEVICE_NAME = ""
+
+# サーバー設定
 SERVER_IP = 'localhost'
 SERVER_PORT = 8080
-FORMAT = pyaudio.paInt16
+
+# 音声設定
+SAMPLING_RATE = 48000
 CHANNELS = 1
-RATE = 48000
+DTYPE = 'int16'
 CHUNK = 1024
 
-# --- 発話検出（VAD）設定 ---
-VAD_THRESHOLD = 300
-SILENCE_CHUNKS = int(1.0 * RATE / CHUNK)
-MAX_RECORD_CHUNKS = int(10 * RATE / CHUNK)
+# 発話検出（VAD）設定
+VAD_THRESHOLD = 300  # 環境に合わせて調整してください
+SILENCE_CHUNKS = int(1.0 * SAMPLING_RATE / CHUNK)
+MAX_RECORD_CHUNKS = int(10 * SAMPLING_RATE / CHUNK)
+# --- ▲▲▲ 設定ここまで ▲▲▲
 
-def list_audio_devices(p):
-    print("-" * 40)
-    print("利用可能なオーディオデバイス:")
-    for i in range(p.get_device_count()):
-        info = p.get_device_info_by_index(i)
-        device_type = ""
-        if info.get('maxInputChannels') > 0:
-            device_type += "[入力]"
-        if info.get('maxOutputChannels') > 0:
-            device_type += "[出力]"
-        print(f"  インデックス {info['index']}: {info['name']} {device_type}")
-    print("-" * 40)
+# 録音データを保持するキュー
+q = queue.Queue()
 
-def main(args):
-    p = pyaudio.PyAudio()
-    stream_in = None
-    stream_out = None
+def find_device_id(name, kind):
+    """デバイス名（部分一致）からデバイスIDを検索する"""
+    if name == "":
+        return None # デフォルトデバイスを使用
+    devices = sd.query_devices()
+    for i, device in enumerate(devices):
+        if name in device['name'] and device[f'max_{kind}_channels'] > 0:
+            print(f"'{name}' に一致する{kind}デバイスが見つかりました: {device['name']} (ID: {i})")
+            return i
+    raise ValueError(f"'{name}' に一致する{kind}デバイスが見つかりませんでした。")
 
+def audio_callback(indata, frames, time, status):
+    """マイクからの入力をキューに入れるコールバック関数"""
+    if status:
+        print(status, file=sys.stderr)
+    q.put(indata.copy())
+
+def main():
     try:
-        stream_in = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True,
-                           frames_per_buffer=CHUNK, input_device_index=args.input_device)
-        print(f"入力デバイス: {p.get_device_info_by_index(args.input_device)['name'] if args.input_device is not None else 'デフォルト'}")
-
-        stream_out = p.open(format=FORMAT, channels=CHANNELS, rate=RATE, output=True,
-                            frames_per_buffer=CHUNK, output_device_index=args.output_device)
-        print(f"出力デバイス: {p.get_device_info_by_index(args.output_device)['name'] if args.output_device is not None else 'デフォルト'}")
+        # デバイスIDを検索
+        input_device_id = find_device_id(INPUT_DEVICE_NAME, 'input')
+        output_device_id = find_device_id(OUTPUT_DEVICE_NAME, 'output')
 
         print("\nクライアント起動完了。Ctrl+Cで終了します。")
 
-        while True:
-            print("\n-----------------------------------------")
-            print("🎤 発話の開始を待っています...")
-            while True:
-                data = stream_in.read(CHUNK, exception_on_overflow=False)
-                rms = np.sqrt(np.mean(np.square(np.frombuffer(data, dtype=np.int16).astype(np.float64))))
-                if rms > VAD_THRESHOLD:
-                    break
+        # マイクからの入力ストリームを開始
+        with sd.InputStream(samplerate=SAMPLING_RATE, device=input_device_id,
+                            channels=CHANNELS, dtype=DTYPE, callback=audio_callback):
             
-            print("🔥 発話を検知しました！ 録音中...")
-            frames = [data]
-            silent_count = 0
             while True:
-                data = stream_in.read(CHUNK, exception_on_overflow=False)
-                frames.append(data)
-                rms = np.sqrt(np.mean(np.square(np.frombuffer(data, dtype=np.int16).astype(np.float64))))
+                print("\n-----------------------------------------")
+                print("🎤 発話の開始を待っています...")
                 
-                if rms < VAD_THRESHOLD:
-                    silent_count += 1
-                else:
-                    silent_count = 0
-                
-                if silent_count > SILENCE_CHUNKS or len(frames) > MAX_RECORD_CHUNKS:
-                    break
-            
-            recorded_data = b''.join(frames)
-            print(f"💬 録音終了 ({len(recorded_data) / (RATE * 2):.2f}秒)。サーバーに接続して変換します...")
+                # キューをクリア
+                while not q.empty():
+                    q.get()
 
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.connect((SERVER_IP, SERVER_PORT))
-                s.sendall(struct.pack('>I', len(recorded_data)))
-                s.sendall(recorded_data)
-                print("🔊 音声データをサーバーに送信しました。")
+                # 発話開始を待つ
+                while True:
+                    data = q.get()
+                    rms = np.sqrt(np.mean(np.square(data.astype(np.float64))))
+                    if rms > VAD_THRESHOLD:
+                        break
                 
-                # ▼▼▼ 変更点: サーバーからの応答をチェック ▼▼▼
-                response_len_data = s.recv(4)
-                if not response_len_data:
-                    raise ConnectionError("サーバーからデータ長の応答がありませんでした。")
-                response_len = struct.unpack('>I', response_len_data)[0]
-
-                # データ長が0より大きい場合のみ、データを受信して再生
-                if response_len > 0:
-                    print(f"✅ 変換済みデータ({response_len}バイト)を受信します。")
-                    converted_data = b''
-                    while len(converted_data) < response_len:
-                        packet = s.recv(4096)
-                        if not packet:
-                            break
-                        converted_data += packet
+                print("🔥 発話を検知しました！ 録音中...")
+                frames = [data]
+                silent_count = 0
+                while True:
+                    data = q.get()
+                    frames.append(data)
+                    rms = np.sqrt(np.mean(np.square(data.astype(np.float64))))
                     
-                    print("🎶 変換後の音声を再生します...")
-                    stream_out.write(converted_data)
-                else:
-                    # データ長が0の場合は、何もせず次のループへ
-                    print("🔇 サーバーから再生不要の信号を受信しました。次の発話に移ります。")
-                # ▲▲▲ 変更点 ここまで ▲▲▲
-            
+                    if rms < VAD_THRESHOLD:
+                        silent_count += 1
+                    else:
+                        silent_count = 0
+                    
+                    if silent_count > SILENCE_CHUNKS or len(frames) > MAX_RECORD_CHUNKS:
+                        break
+                
+                recorded_data = np.concatenate(frames).tobytes()
+                
+                try:
+                    print(f"💬 録音終了。サーバーに接続して変換します...")
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.connect((SERVER_IP, SERVER_PORT))
+                        s.sendall(struct.pack('>I', len(recorded_data)))
+                        s.sendall(recorded_data)
+                        print("🔊 音声データをサーバーに送信しました。")
+                        
+                        response_len_data = s.recv(4)
+                        if not response_len_data:
+                            print("サーバーから応答がありません。終了します。")
+                            break
+
+                        response_len = struct.unpack('>I', response_len_data)[0]
+
+                        if response_len > 0:
+                            print(f"✅ 変換済みデータ({response_len}バイト)を受信します。")
+                            converted_data_bytes = b''
+                            while len(converted_data_bytes) < response_len:
+                                packet = s.recv(4096)
+                                if not packet: break
+                                converted_data_bytes += packet
+                            
+                            print("🎶 変換後の音声を再生します...")
+                            converted_data_np = np.frombuffer(converted_data_bytes, dtype=DTYPE)
+                            sd.play(converted_data_np, samplerate=SAMPLING_RATE, device=output_device_id)
+                            sd.wait() # 再生が完了するまで待つ
+                        else:
+                            print("🔇 サーバーから再生不要の信号を受信しました。次の発話に移ります。")
+                
+                except (ConnectionRefusedError, ConnectionResetError, socket.error) as e:
+                    print(f"\n[エラー] サーバーとの接続が失われました: {e}")
+                    print("サーバーが停止したため、クライアントを終了します。")
+                    break
+                
     except KeyboardInterrupt:
-        print("\n終了します。")
-    except ConnectionRefusedError:
-        print("\n[エラー] サーバーに接続できませんでした。サーバーが起動しているか確認してください。")
+        print("\nCtrl+Cを検知しました。終了します。")
     except Exception as e:
         print(f"\n[エラー] 予期せぬエラーが発生しました: {e}")
     finally:
-        if stream_in:
-            stream_in.stop_stream()
-            stream_in.close()
-        if stream_out:
-            stream_out.stop_stream()
-            stream_out.close()
-        if p:
-            p.terminate()
-        print("リソースを解放しました。")
+        print("クライアントを終了しました。")
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="発話単位で音声を変換するクライアント")
+    # 利用可能なデバイス一覧を表示する機能
+    parser = argparse.ArgumentParser(description="発話単位で音声を変換するクライアント (sounddevice版)")
     parser.add_argument('--list-devices', action='store_true', help='利用可能なオーディオデバイスの一覧を表示して終了します。')
-    parser.add_argument('-i', '--input-device', type=int, help='入力デバイスのインデックス番号。')
-    parser.add_argument('-o', '--output-device', type=int, help='出力デバイスのインデックス番号。')
     args = parser.parse_args()
 
     if args.list_devices:
-        p = pyaudio.PyAudio()
-        list_audio_devices(p)
-        p.terminate()
+        print("利用可能なオーディオデバイス:")
+        print(sd.query_devices())
         sys.exit()
     
-    main(args)
+    main()
