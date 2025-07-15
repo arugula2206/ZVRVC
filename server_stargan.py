@@ -32,6 +32,7 @@ def handle_client(conn, addr):
     print(f"\nクライアントが接続しました: {addr}")
     try:
         with conn:
+            # 1. データ受信
             len_data = conn.recv(4)
             if not len_data: return
             input_len = struct.unpack('>I', len_data)[0]
@@ -43,9 +44,32 @@ def handle_client(conn, addr):
             
             print(f"音声受信完了。変換処理を開始します...")
             
-            # (VAD処理は変更なし)
-            is_speech = True
-            # ... (必要に応じてVADのロジックをここに追加) ...
+            is_speech = False
+            if VAD_ENABLED:
+                try:
+                    # 48kHzの音声データをTensorに変換
+                    input_wave_tensor = torch.from_numpy(np.frombuffer(input_data, dtype=np.int16)).float() / 32768.0
+                    
+                    # VADモデルが要求する16kHzにリサンプリング
+                    resampler = torchaudio.transforms.Resample(orig_freq=48000, new_freq=16000)
+                    resampled_tensor = resampler(input_wave_tensor)
+
+                    # 発話区間を検出
+                    speech_timestamps = get_speech_timestamps(resampled_tensor, vad_model, sampling_rate=16000)
+                    
+                    if speech_timestamps:
+                        is_speech = True
+                        print(f"VAD: 発話を検出しました。")
+                    else:
+                        is_speech = False # 発話がなければFalse
+                        print("VAD: 発話を検出できませんでした。変換をスキップします。")
+
+                except Exception as e:
+                    print(f"VAD処理中にエラーが発生しました: {e}")
+                    is_speech = True # エラー時は安全のため変換を実行
+            else:
+                # VADが無効な場合は常に変換
+                is_speech = True
 
             if is_speech:
                 processed_bytes = converter.convert_voice(input_data, config['target_speaker_key'])
@@ -53,6 +77,7 @@ def handle_client(conn, addr):
                 conn.sendall(struct.pack('>I', len(processed_bytes)))
                 conn.sendall(processed_bytes)
             else:
+                # 発話が検出されなかった場合は、データ長0を送信してスキップ
                 conn.sendall(struct.pack('>I', 0))
             print("送信完了。")
     except Exception as e:

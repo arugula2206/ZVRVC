@@ -6,5 +6,6 @@
   "hifigan_config": "./hifigan_fix/config_v1_mod_2.json",
   "hifigan_model": "./hifigan_fix/checkpoints/g_07180000_2",
   "target_speaker_key": "zundamon127",
-  "warmup": 10
+  "warmup": 50,
+  "use_denoiser": true
 }
