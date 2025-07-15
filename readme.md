@@ -1,117 +1,162 @@
-# リアルタイム声質変換システム
+# ZVRVC
+発話単位でリアルタイムな声質変換を実現する、クライアントサーバー型のアプリケーションです。AIモデルにはStarGANv2-vcを利用しています。
 
-このシステムは、マイクから入力された音声をリアルタイムでサーバーに送信し、AIモデルによる声質変換を行った後、クライアントに返送して再生するシステムです。
+## 概要
+クライアント (client_utterance.py) がマイクであなたの音声を録音し、サーバー (server.py) に送信します。サーバーは受け取った音声を変換エンジン (converter.py) を使って目標の話者の声に変換し、クライアントに返送します。クライアントは受け取った音声をスピーカーで再生します。
 
-## 1. 必要なもの (Prerequisites)
+## 1. 環境構築
+本システムはDockerコンテナ内でサーバーを動作させることを前提としています。
 
-### サーバー側 (ホストPC - Ubuntu)
-- Docker
-- NVIDIA GPU と対応するドライバ
-- Python 3.11+
-- プロジェクトファイル一式
+### 1.1. 必要なもの
+Docker および NVIDIA Container Toolkit: GPUを利用してAIモデルを動作させるために必要です。事前にインストールしてください。
 
-### クライアント側 (Windows)
-- Python 3.11+
-- **PyAudio:** `pip install pyaudio`
-- **(推奨) VB-CABLE:** 仮想オーディオデバイス
-- **(推奨) OBS Studio:** ノイズ除去フィルタの適用
+各種モデルファイル: 学習済みのStarGANv2-vc、HiFi-GAN、F0予測モデルのファイル群。
 
-## 2. セットアップ (Setup)
+参照音声データ: 目標話者（例: ずんだもん）の音声ファイル。
 
-### サーバー側 (Ubuntu/Docker)
-
-1.  **Dockerイメージのビルド:**
-    プロジェクトのルートディレクトリ (`ZVRVC`) で、以下のコマンドを実行してDockerイメージをビルドします。
-    ```bash
-    docker build -t zvrvc .
-    ```
-
-### クライアント側 (Windows)
-
-1.  **Pythonパッケージのインストール:**
-    コマンドプロンプトやPowerShellで、`PyAudio`をインストールします。
-    ```bash
-    pip install pyaudio
-    ```
-
-2.  **(推奨) ノイズ除去のためのOBS & VB-CABLE設定:**
-    よりクリアな音声をサーバーに送るため、OBSのノイズ除去フィルタを利用することを強く推奨します。
-
-    a. **VB-CABLEのインストール:** 公式サイトからダウンロードし、インストールします。
-    
-    b. **OBSの設定:**
-        i. **ソース追加:** 「ソース」パネルで「+」→「音声入力キャプチャ」を選択し、お使いの物理マイクを指定します。
-        ii. **フィルタ追加:** 「音声ミキサー」でマイクのフィルタ設定を開き、「+」から「ノイズ抑制」を追加します。（RNNoise推奨）
-        iii. **モニタリング設定:** OBSの「設定」→「音声」→「詳細設定」にある「モニタリングデバイス」を「**CABLE Input (VB-Audio Virtual Cable)**」に設定します。
-        iv. **モニタリング有効化:** 「音声ミキサー」の「オーディオの詳細プロパティ」で、マイクの「音声モニタリング」を「**モニターのみ（出力はミュート）**」に設定します。
-
-## 3. 実行方法 (Usage)
-
-#### ステップ1: サーバーを起動する (Ubuntu)
-
-ホストPCのターミナルで、プロジェクトのルートディレクトリに移動し、以下のコマンドでDockerコンテナを起動します。
+### 1.2. ファイル配置
+プロジェクトのルートディレクトリ（例: ZVRVC/）に、以下の構造でファイルとディレクトリを配置してください。特にモデルファイルの階層構造が重要です。
 
 ```bash
-docker run --gpus all -it --rm --name zvrvc -p 8080:8080 -v ./:/app -w /app zvrvc
+ZVRVC/
+├── server.py               # サーバー本体
+├── client_utterance.py       # クライアント
+├── converter.py              # 変換エンジン
+├── const.py                  # 話者リスト定義
+├── config.json               # サーバー設定ファイル
+├── requirements.txt          # 必要なPythonライブラリリスト
+├── Dockerfile                # Dockerイメージ構築用ファイル
+│
+├── starganv2_vc/             # StarGANv2-vcのコードとモデル
+│   ├── Models/
+│   │   └── ita4jvs20_pre_alljp/
+│   │       └── epoch_00294.pth
+│   ├── Utils/
+│   │   └── JDC/
+│   │       └── ep50_200bat32lr5_alljp.pth
+│   ├── Configs/
+│   │   └── config.yml
+│   └── Data/
+│       └── ITA-corpus/
+│           └── zundamon/
+│               └── recitation127.wav # 参照音声
+│
+└── hifigan_fix/              # HiFi-GANのコードとモデル
+    ├── checkpoints/
+    │   └── g_07180000_2
+    └── config_v1_mod_2.json
 ```
 
-コンテナ内でサーバを起動します。
+requirements.txt の内容例:
+```
+torch==2.1.0
+torchaudio==2.1.0
+numpy
+librosa
+soxr
+pyyaml
+munch
+sounddevice
+modelscope
+# その他、frcrnに必要なライブラリ
+```
+
+Dockerfile の内容例:
+```Docker
+FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+CMD [ "python3", "server.py", "--config", "config.json" ]
+```
+
+### 1.3. 設定ファイルの編集
+config.json を開き、ご自身の環境に合わせて各モデルファイルへのパスが正しいかを確認してください。
+
+config.json
+```
+{
+  "stargan_model_dir": "ita4jvs20_pre_alljp",
+  "stargan_model_name": "epoch_00294.pth",
+  "f0_model": "ep50_200bat32lr5_alljp.pth",
+  "f0_model_key": "model",
+  "hifigan_config": "./hifigan_fix/config_v1_mod_2.json",
+  "hifigan_model": "./hifigan_fix/checkpoints/g_07180000_2",
+  "target_speaker_key": "zundamon127",
+  "warmup": 50
+}
+```
+
+### 1.4. Dockerイメージのビルド
+プロジェクトのルートディレクトリで以下のコマンドを実行し、Dockerイメージをビルドします。
+
 ```bash
-python server.py
+docker build -t zvrvc .
 ```
 
-ターミナルに`サーバーが 0.0.0.0:8080 で待機中です。`と表示されれば準備完了です。
+## 2. デモの実行方法
+デモはサーバーとクライアントの2つを起動して行います。
 
-#### ステップ2: クライアントの準備 (Windows)
+### 2.1. サーバーの起動
+まず、ターミナルで以下のコマンドを実行して、Dockerコンテナを起動します。これにより、バックグラウンドでサーバーが起動し、モデルの読み込みが始まります。
 
-1.  **(推奨) OBSを起動:** ノイズ除去を行う場合は、OBSを起動したままにします。\
-（以下は自宅など大学環境外から接続する場合、必要な手順です。）
-2.  **VS Codeでホストに接続:** クライアントPCでVS Codeを起動し、ホストPC（Ubuntu）にSSH接続します。
-3.  **ポートフォワーディングを設定:** VS Code下部の「ポート」タブを開き、「ポートを転送」ボタンから`8080`番ポートを転送します。
-
-#### ステップ3: クライアントスクリプトを実行する (Windows)
-
-1.  **使用するデバイスの番号を確認:**
-    まず、以下のコマンドで利用可能な音声デバイスの一覧とインデックス番号を確認します。
-    ```bash
-    python client.py --list-devices
-    ```
-    * **ノイズ除去ありの場合:** 入力デバイスとして`CABLE Output (VB-Audio Virtual Cable)`のインデックス番号を探します。
-    * **ノイズ除去なしの場合:** 入力デバイスとしてお使いの物理マイクのインデックス番号を探します。
-
-2.  **クライアントを起動:**
-    確認したデバイス番号を使って、クライアントを起動します。
-    ```bash
-    # 例: VB-CABLEが3番、出力がデフォルトの場合
-    python client.py --input-device 3
-    ```
-
-3.  **終了方法:**
-    クライアント、サーバー共に、実行しているターミナルで`Ctrl + C`を押すと安全に終了します。
-
-## 4. クライアントのオプション
-
--   `--list-devices`: 利用可能なオーディオデバイスの一覧を表示して終了します。
--   `-i <番号>`, `--input-device <番号>`: 使用する入力デバイス（マイク）のインデックス番号を指定します。
--   `-o <番号>`, `--output-device <番号>`: 使用する出力デバイス（スピーカー）のインデックス番号を指定します。
-
-## 5. トラブルシューティング
-
--   **「サーバーに接続できませんでした」と表示される:**
-    -   サーバーは正常に起動していますか？
-    -   VS Codeのポートフォワーディング（8080番）は正しく設定され、有効になっていますか？ 一度転送を停止し、再設定すると解決することがあります。
-    -   `client.py`の`SERVER_IP`が`'localhost'`または`'127.0.0.1'`に設定されていますか？
-
--   **音声が聞こえない / 自分の声がそのまま返ってくる:**
-    -   サーバー側で音声変換処理が正しく行われていますか？サーバーのログを確認してください。
-    -   クライアントPCの音量ミキサーで「python」の音量がミュートになっていませんか？
-    -   `client.py`で指定した出力デバイスは正しいですか？
-
-
-
-# starganv2-vcでの変換
-server_stargan.pyを起動
 ```bash
-python server_stargan.py --config config.json
+docker run -d --gpus all -p 8080:8080 --name zvrvc_server zvrvc
 ```
-クライアントはclient_utterance.pyでok
+
+サーバーのログを確認し、モデルの読み込みが完了して待機状態になったことを確認します。
+
+```bash
+docker logs -f zvrvc_server
+```
+
+以下のようなメッセージが表示されれば、サーバーの準備は完了です。
+
+```bash
+>>>> サーバーが 0.0.0.0:8080 で待機中です。(停止するには Ctrl+C を押してください) <<<<
+```
+
+### 2.2. クライアントの起動
+別のターミナルを開き、client_utterance.py を実行します。
+
+ステップ A: オーディオデバイス名の確認（初回のみ）
+まず、以下のコマンドで利用可能なオーディオデバイスの名前を確認します。
+
+```bash
+python client_utterance.py --list-devices
+```
+
+出力結果から、使用したいマイクとスピーカーの名前（またはその一部）を控えておきます。
+
+ステップ B: スクリプトの編集
+client_utterance.py をテキストエディタで開き、ファイルの先頭にある設定項目を編集します。
+
+```python
+# client_utterance.py
+
+# --- ▼▼▼ 設定 ▼▼▼ ---
+# 使用するデバイス名を部分的に指定してください (例: "Focusrite", "MacBook Pro Microphone")
+# 空白のままにすると、OSのデフォルトデバイスが使用されます。
+INPUT_DEVICE_NAME = "マイクの名前の一部"
+OUTPUT_DEVICE_NAME = "スピーカーの名前の一部"
+
+# ... (以下略) ...
+```
+
+ステップ C: クライアントの実行
+編集したスクリプトを保存し、以下のコマンドで実行します。
+
+```bash
+python client_utterance.py
+```
+
+クライアントが起動し、「🎤 発話の開始を待っています...」と表示されたら、マイクに向かって話しかけてください。録音が自動で行われ、変換後の音声が指定したスピーカーから再生されます。
