@@ -2,7 +2,6 @@
 
 import socket
 import sounddevice as sd
-import time
 import argparse
 import sys
 import numpy as np
@@ -12,11 +11,11 @@ import queue
 # --- ▼▼▼ 設定 ▼▼▼ ---
 # 使用するデバイス名を部分的に指定してください (例: "Focusrite", "MacBook Pro Microphone")
 # 空白のままにすると、OSのデフォルトデバイスが使用されます。
-INPUT_DEVICE_NAME = ""
-OUTPUT_DEVICE_NAME = ""
+INPUT_DEVICE_NAME = "Voicemeeter Out B1 (VB-Audio Voicemeeter VAIO)"
+OUTPUT_DEVICE_NAME = "Voicemeeter AUX Input (VB-Audio Voicemeeter VAIO)"
 
 # サーバー設定
-SERVER_IP = 'localhost'
+SERVER_IP = '192.168.101.106'
 SERVER_PORT = 8080
 
 # 音声設定
@@ -62,11 +61,11 @@ def main():
         # マイクからの入力ストリームを開始
         with sd.InputStream(samplerate=SAMPLING_RATE, device=input_device_id,
                             channels=CHANNELS, dtype=DTYPE, callback=audio_callback):
-            
+
             while True:
                 print("\n-----------------------------------------")
-                print("🎤 発話の開始を待っています...")
-                
+                print("発話の開始を待っています...")
+
                 # キューをクリア
                 while not q.empty():
                     q.get()
@@ -77,33 +76,33 @@ def main():
                     rms = np.sqrt(np.mean(np.square(data.astype(np.float64))))
                     if rms > VAD_THRESHOLD:
                         break
-                
-                print("🔥 発話を検知しました！ 録音中...")
+
+                print("発話を検知しました！ 録音中...")
                 frames = [data]
                 silent_count = 0
                 while True:
                     data = q.get()
                     frames.append(data)
                     rms = np.sqrt(np.mean(np.square(data.astype(np.float64))))
-                    
+
                     if rms < VAD_THRESHOLD:
                         silent_count += 1
                     else:
                         silent_count = 0
-                    
+
                     if silent_count > SILENCE_CHUNKS or len(frames) > MAX_RECORD_CHUNKS:
                         break
-                
+
                 recorded_data = np.concatenate(frames).tobytes()
-                
+
                 try:
-                    print(f"💬 録音終了。サーバーに接続して変換します...")
+                    print(f"録音終了。サーバーに接続して変換します...")
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                         s.connect((SERVER_IP, SERVER_PORT))
                         s.sendall(struct.pack('>I', len(recorded_data)))
                         s.sendall(recorded_data)
-                        print("🔊 音声データをサーバーに送信しました。")
-                        
+                        print("音声データをサーバーに送信しました。")
+
                         response_len_data = s.recv(4)
                         if not response_len_data:
                             print("サーバーから応答がありません。終了します。")
@@ -112,25 +111,25 @@ def main():
                         response_len = struct.unpack('>I', response_len_data)[0]
 
                         if response_len > 0:
-                            print(f"✅ 変換済みデータ({response_len}バイト)を受信します。")
+                            print(f"変換済みデータ({response_len}バイト)を受信します。")
                             converted_data_bytes = b''
                             while len(converted_data_bytes) < response_len:
                                 packet = s.recv(4096)
                                 if not packet: break
                                 converted_data_bytes += packet
-                            
-                            print("🎶 変換後の音声を再生します...")
+
+                            print("変換後の音声を再生します...")
                             converted_data_np = np.frombuffer(converted_data_bytes, dtype=DTYPE)
                             sd.play(converted_data_np, samplerate=SAMPLING_RATE, device=output_device_id)
                             sd.wait() # 再生が完了するまで待つ
                         else:
-                            print("🔇 サーバーから再生不要の信号を受信しました。次の発話に移ります。")
-                
+                            print("サーバーから再生不要の信号を受信しました。次の発話に移ります。")
+
                 except (ConnectionRefusedError, ConnectionResetError, socket.error) as e:
                     print(f"\n[エラー] サーバーとの接続が失われました: {e}")
                     print("サーバーが停止したため、クライアントを終了します。")
                     break
-                
+
     except KeyboardInterrupt:
         print("\nCtrl+Cを検知しました。終了します。")
     except Exception as e:
