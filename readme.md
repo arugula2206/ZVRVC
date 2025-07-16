@@ -144,10 +144,10 @@ client_utterance.py をテキストエディタで開き、ファイルの先頭
 # client_utterance.py
 
 # --- ▼▼▼ 設定 ▼▼▼ ---
-# 使用するデバイス名を部分的に指定してください (例: "Focusrite", "MacBook Pro Microphone")
+# 使用するデバイス名を指定してください (例: "Focusrite", "MacBook Pro Microphone")
 # 空白のままにすると、OSのデフォルトデバイスが使用されます。
-INPUT_DEVICE_NAME = "マイクの名前の一部"
-OUTPUT_DEVICE_NAME = "スピーカーの名前の一部"
+INPUT_DEVICE_NAME = "Voicemeeter Out B1 (VB-Audio Voicemeeter VAIO)"
+OUTPUT_DEVICE_NAME = "Voicemeeter AUX Input (VB-Audio Voicemeeter VAIO)"
 
 # ... (以下略) ...
 ```
