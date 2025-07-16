@@ -15,7 +15,7 @@ INPUT_DEVICE_NAME = "Voicemeeter Out B1 (VB-Audio Voicemeeter VAIO)"
 OUTPUT_DEVICE_NAME = "Voicemeeter AUX Input (VB-Audio Voicemeeter VAIO)"
 
 # サーバー設定
-SERVER_IP = '192.168.101.106'
+SERVER_IP = 'localhost'
 SERVER_PORT = 8080
 
 # 音声設定
